@@ -55,10 +55,41 @@ namespace HADC_REBORN
         public static WsWrapper? wsWrapper = null;
 
         public static string version = Assembly.GetExecutingAssembly().GetName().Version.ToString();
+        //Creates missing settings, so the settings file does not have to be shipped with (and overwritten by) an update
+        private static void ensureSettings()
+        {
+            try
+            {
+                Configuration config = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
+                bool changed = false;
+
+                foreach (string key in new string[] { "url", "token", "webhook_id", "remote_url", "cloud_url", "secret" })
+                {
+                    if (config.AppSettings.Settings[key] == null)
+                    {
+                        config.AppSettings.Settings.Add(key, "");
+                        changed = true;
+                    }
+                }
+
+                if (changed)
+                {
+                    config.Save(ConfigurationSaveMode.Modified);
+                    log.writeLine("Settings file created");
+                }
+            }
+            catch (Exception ex)
+            {
+                log.writeLine("Settings file could not be prepared: " + ex.Message);
+            }
+        }
+
         protected override void OnStartup(StartupEventArgs e)
         {
             AppDomain.CurrentDomain.FirstChanceException += GlobalExceptionFunction;
-         
+
+            ensureSettings();
+
             App.icon = new NotifyIcon();
 
             icon.DoubleClick += new EventHandler(icon_Click);

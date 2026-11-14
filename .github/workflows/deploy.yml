@@ -1,35 +1,79 @@
-name: "Deploy"
+name: "Build and release"
+
+# Every push and pull request is built.
+# Pushing a tag like v1.2.3 also creates a release with the files the auto-updater looks for.
 
 on:
   push:
     branches: [ "master" ]
     tags:
-      - '*'
+      - 'v*'
   pull_request:
     branches: [ "master" ]
-    tags:
-      - '*'
+
+permissions:
+  contents: read
+
 env:
-  PROJECT_PATH: HA/HA.csproj
+  PROJECT_PATH: HADC_REBORN/HADC_REBORN.csproj
+  PUBLISH_DIR: publish
 
 jobs:
-  deploy:
+  build:
     runs-on: windows-latest
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v3
-      - run: dotnet publish ${{env.PROJECT_PATH}} -c Release --self-contained -r win-x64 -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+      - uses: actions/checkout@v4
 
-      - uses: actions/create-release@v1
-        id: create_release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-dotnet@v4
         with:
-          tag_name: ${{ github.event.head_commit.message }}
-          release_name: ${{ github.event.head_commit.message }}
-      
-      - run: Compress-Archive -Path "HA\bin\Release\net6.0-windows10.0.17763.0\win-x64\publish\" -DestinationPath "HA\bin\Release\net6.0-windows10.0.17763.0\win-x64\publish\${{ github.ref }}.zip"
-      - uses: csexton/release-asset-action@v2
+          dotnet-version: 10.0.x
+
+      - name: Determine version
+        id: version
+        shell: pwsh
+        run: |
+          $version = "0.0.0"
+          if ($env:GITHUB_REF -match '^refs/tags/v(\d+\.\d+\.\d+)$') {
+            $version = $Matches[1]
+          } elseif ($env:GITHUB_REF -like 'refs/tags/*') {
+            throw "Release tags must look like v1.2.3"
+          }
+          "version=$version.0" >> $env:GITHUB_OUTPUT
+
+      - name: Publish
+        shell: pwsh
+        run: >
+          dotnet publish $env:PROJECT_PATH -c Release -r win-x64 --self-contained
+          -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:AssemblyVersion=${{ steps.version.outputs.version }}
+          -p:FileVersion=${{ steps.version.outputs.version }}
+          --output $env:PUBLISH_DIR
+
+      - name: Package release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          # The settings file is left out, so an update never overwrites the user's settings
+          Get-ChildItem $env:PUBLISH_DIR -Include *.config, *.pdb -Recurse | Remove-Item
+          Compress-Archive -Path "$env:PUBLISH_DIR/*" -DestinationPath HA_Self_Contained.zip
+
+          $meta = @"
+          <?xml version="1.0" encoding="utf-8" ?>
+          <item>
+            <version>${{ steps.version.outputs.version }}</version>
+            <url>https://github.com/${{ github.repository }}/releases/latest/download/HA_Self_Contained.zip</url>
+            <changelog>https://github.com/${{ github.repository }}/releases/latest</changelog>
+            <mandatory>false</mandatory>
+          </item>
+          "@
+          Set-Content -Path meta.xml -Value $meta -Encoding utf8
+
+      - name: Create release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
         with:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          pattern: HA\bin\Release\net6.0-windows10.0.17763.0\win-x64\publish\
-          release|_url: ${{steps.create_release.outputs.upload_url}}
+          files: |
+            HA_Self_Contained.zip
+            meta.xml
