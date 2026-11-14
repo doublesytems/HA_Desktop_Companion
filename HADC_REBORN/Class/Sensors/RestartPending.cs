@@ -23,10 +23,10 @@ namespace HADC_REBORN.Class.Sensors
                 {
                     using (var rootKey = Registry.LocalMachine.OpenSubKey(path))
                     {
+                        //Windows creates these keys only while a restart is pending
                         if (rootKey != null)
                         {
-                            if (rootKey.GetSubKeyNames().Length > 0)
-                                return true;
+                            return true;
                         }
                     }
                 }
@@ -35,7 +35,7 @@ namespace HADC_REBORN.Class.Sensors
                 {
                     if (rootKey != null)
                     {
-                        if (rootKey != null || !String.IsNullOrEmpty((string) rootKey.GetValue("PendingFileRenameOperations").ToString()))
+                        if (rootKey.GetValue("PendingFileRenameOperations") is string[] pendingOperations && pendingOperations.Any(x => !String.IsNullOrEmpty(x)))
                         {
                             return true;
                         }

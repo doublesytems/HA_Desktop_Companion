@@ -5,14 +5,11 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
-using System.Net.Http.Headers;
-using System.Net.Http;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.IO;
 using System.Net.WebSockets;
-using System.Runtime.InteropServices;
-using System.Windows.Threading;
 
 namespace HADC_REBORN.Class.HomeAssistant
 {
@@ -22,15 +19,11 @@ namespace HADC_REBORN.Class.HomeAssistant
         private string token;
         private string webhook;
 
-        private ClientWebSocket socket = new ClientWebSocket();
-        private byte[] buffer = new byte[2048];
+        private ClientWebSocket? socket = null;
+        private readonly object sendLock = new object();
         private int interactions = 1;
 
-        private int failedAttempts = 0;
         private bool isConnected = false;
-
-        private Task recieveLoopObject;
-        private static DispatcherTimer updatePingTimer = new DispatcherTimer();
 
         public WsConnector(string apiUrl, string apiToken, string webhookId)
         {
@@ -41,134 +34,197 @@ namespace HADC_REBORN.Class.HomeAssistant
 
         public void register()
         {
+            //Drop any previous connection before opening a new one
+            disconnect();
+
             Uri wsAddress = new Uri(url + "/api/websocket");
-            ManualResetEvent exitEvent = new ManualResetEvent(false);
-            socket = new ClientWebSocket();
-            socket.Options.KeepAliveInterval = TimeSpan.Zero;
+            ClientWebSocket newSocket = new ClientWebSocket();
+            newSocket.Options.KeepAliveInterval = TimeSpan.Zero;
 
-            socket.ConnectAsync(wsAddress, CancellationToken.None).Wait();
-            App.log.writeLine("[WS] ADDRESS:" + wsAddress);
-
-            JObject initialization = RecieveAsync();
-            if (initialization["type"].ToString() != "auth_required")
+            try
             {
-                throw new Exception("Server dont asked for authorization");
+                using (CancellationTokenSource timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15)))
+                {
+                    newSocket.ConnectAsync(wsAddress, timeout.Token).GetAwaiter().GetResult();
+                    App.log.writeLine("[WS] ADDRESS:" + wsAddress);
+
+                    JObject initialization = receiveJson(newSocket, timeout.Token);
+                    if (initialization["type"]?.ToString() != "auth_required")
+                    {
+                        throw new Exception("Server dont asked for authorization");
+                    }
+
+                    WsAuth authObj = new WsAuth() { };
+                    authObj.access_token = token;
+
+                    send(newSocket, authObj, timeout.Token);
+                    JObject registration = receiveJson(newSocket, timeout.Token);
+                    if (registration["type"]?.ToString() != "auth_ok")
+                    {
+                        throw new Exception("Server dont accepted authorization");
+                    }
+
+                    JObject subscription;
+                    lock (sendLock)
+                    {
+                        WsRequest subscribeObj = new WsRequest { };
+                        subscribeObj.id = interactions;
+                        subscribeObj.webhook_id = webhook;
+                        subscribeObj.type = "mobile_app/push_notification_channel";
+
+                        send(newSocket, subscribeObj, timeout.Token);
+                        subscription = receiveJson(newSocket, timeout.Token);
+                    }
+
+                    if (subscription["success"]?.ToObject<bool>() != true)
+                    {
+                        throw new Exception("Server authorization failed");
+                    }
+                }
+            }
+            catch
+            {
+                newSocket.Dispose();
+                throw;
             }
 
-            WsAuth authObj = new WsAuth() { };
-            authObj.access_token = token;
-
-            JObject registration = sendAndRecieveAsync(authObj);
-            if (registration["type"].ToString() != "auth_ok")
-            {
-                throw new Exception("Server dont accepted authorization");
-            }
-
-            WsRequest subscribeObj = new WsRequest { };
-            subscribeObj.id = interactions;
-            subscribeObj.webhook_id = webhook;
-            subscribeObj.type = "mobile_app/push_notification_channel";
-
-            JObject subscription = sendAndRecieveAsync(subscribeObj);
-            if (bool.Parse(subscription["success"].ToString()) != true)
-            {
-                throw new Exception("Server authorization failed");
-            }
-
+            socket = newSocket;
             isConnected = true;
         }
 
+        //Blocks until the connection is closed or fails
         public void receive(Action<JObject> callbackRecieveEvent)
         {
-            var localBuffer = new ArraySegment<byte>(new byte[2048]);
-            bool error = false;
-
-            do
+            ClientWebSocket? localSocket = socket;
+            if (localSocket == null)
             {
+                return;
+            }
+
+            while (true)
+            {
+                string? jsonPayload;
                 try
                 {
-                    WebSocketReceiveResult localResult;
-                    using (var ms = new MemoryStream())
-                    {
-                        do
-                        {
-                            Task<WebSocketReceiveResult> receiveTask = socket.ReceiveAsync(localBuffer, CancellationToken.None);
-                            receiveTask.Wait();
-
-                            localResult = receiveTask.Result;
-                            ms.Write(localBuffer.Array, localBuffer.Offset, localResult.Count);
-                        } while (!localResult.EndOfMessage);
-
-                        if (localResult.MessageType == WebSocketMessageType.Close)
-                            break;
-
-                        ms.Seek(0, SeekOrigin.Begin);
-                        using (var reader = new StreamReader(ms, Encoding.UTF8))
-                        {
-                            string jsonPayload = reader.ReadToEnd();
-                            if (callbackRecieveEvent != null)
-                            {
-                                callbackRecieveEvent.Invoke(JObject.Parse(jsonPayload));
-                            }
-#if DEBUG
-                            App.log.writeLine("[WS] Recieved in LOOP: " + jsonPayload);
-#endif
-                        }
-                    }
+                    jsonPayload = readMessage(localSocket, CancellationToken.None);
                 }
                 catch (Exception e)
                 {
                     App.log.writeLine("[WS] ERROR: " + e.Message);
-                    error = true;
+                    return;
                 }
-            } while (!error);
+
+                if (jsonPayload == null)
+                {
+                    App.log.writeLine("[WS] Connection closed by server");
+                    return;
+                }
+
+#if DEBUG
+                App.log.writeLine("[WS] Recieved in LOOP: " + jsonPayload);
+#endif
+
+                //A message that fails to process must not end the connection
+                try
+                {
+                    if (callbackRecieveEvent != null)
+                    {
+                        callbackRecieveEvent.Invoke(JObject.Parse(jsonPayload));
+                    }
+                }
+                catch (Exception e)
+                {
+                    App.log.writeLine("[WS] Failed to process message: " + e.Message);
+                }
+            }
         }
 
         public void ping()
         {
-            WsPing pingObj = new WsPing { };
-            pingObj.type = "ping";
-            pingObj.id = interactions;
-            Send(pingObj);
+            ClientWebSocket? localSocket = socket;
+            if (localSocket == null)
+            {
+                throw new Exception("Not connected");
+            }
+
+            using (CancellationTokenSource timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
+            {
+                lock (sendLock)
+                {
+                    WsPing pingObj = new WsPing { };
+                    pingObj.type = "ping";
+                    pingObj.id = interactions;
+                    send(localSocket, pingObj, timeout.Token);
+                }
+            }
         }
-      
+
         public void disconnect()
         {
-            if (socket.State == WebSocketState.Open || socket.State == WebSocketState.CloseSent || socket.State == WebSocketState.Aborted)
-            {
-                if (socket.State == WebSocketState.Aborted)
-                {
-                    socket.Abort();
-                }
-                else
-                {
-                    socket.CloseAsync(WebSocketCloseStatus.NormalClosure, string.Empty, CancellationToken.None);
-                }
+            isConnected = false;
 
-                if (socket != null)
+            ClientWebSocket? oldSocket = Interlocked.Exchange(ref socket, null);
+            if (oldSocket == null)
+            {
+                return;
+            }
+
+            try
+            {
+                //Also answer a close that was started by the server
+                if (oldSocket.State == WebSocketState.Open || oldSocket.State == WebSocketState.CloseReceived)
                 {
-                    socket.Dispose();
-                    socket = null;
+                    oldSocket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, string.Empty, CancellationToken.None).Wait(2000);
                 }
+            }
+            catch (Exception)
+            {
+                //Connection is already gone
+            }
+
+            try
+            {
+                oldSocket.Dispose();
+            }
+            catch (Exception)
+            {
             }
         }
 
         public bool connected()
         {
-            return (isConnected && (failedAttempts < 5) && socket != null);
+            ClientWebSocket? localSocket = socket;
+            return (isConnected && localSocket != null && localSocket.State == WebSocketState.Open);
         }
 
-        private JObject sendAndRecieveAsync(dynamic payloadObj)
+        private static string? readMessage(ClientWebSocket localSocket, CancellationToken cancellationToken)
         {
-            Send(payloadObj).Wait();
+            byte[] localBuffer = new byte[2048];
+            using (var ms = new MemoryStream())
+            {
+                WebSocketReceiveResult localResult;
+                do
+                {
+                    localResult = localSocket.ReceiveAsync(new ArraySegment<byte>(localBuffer), cancellationToken).GetAwaiter().GetResult();
+                    if (localResult.MessageType == WebSocketMessageType.Close)
+                    {
+                        return null;
+                    }
 
-            return RecieveAsync();
+                    ms.Write(localBuffer, 0, localResult.Count);
+                } while (!localResult.EndOfMessage);
+
+                return Encoding.UTF8.GetString(ms.ToArray());
+            }
         }
 
-        private JObject RecieveAsync()
+        private static JObject receiveJson(ClientWebSocket localSocket, CancellationToken cancellationToken)
         {
-            WebSocketReceiveResult result = socket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None).Result;
-            string JSONRecievedpayload = Encoding.UTF8.GetString(buffer, 0, result.Count);
+            string? JSONRecievedpayload = readMessage(localSocket, cancellationToken);
+            if (JSONRecievedpayload == null)
+            {
+                throw new Exception("Server closed the connection");
+            }
 
 #if DEBUG
             App.log.writeLine("[WS] RECIEVED:");
@@ -177,8 +233,8 @@ namespace HADC_REBORN.Class.HomeAssistant
 
             return JObject.Parse(JSONRecievedpayload);
         }
-       
-        private async Task Send(dynamic payloadObj)
+
+        private void send(ClientWebSocket localSocket, object payloadObj, CancellationToken cancellationToken)
         {
             string JSONPayload = JsonConvert.SerializeObject(payloadObj, Formatting.Indented, new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore }).ToString();
 
@@ -188,9 +244,11 @@ namespace HADC_REBORN.Class.HomeAssistant
 #endif
 
             ArraySegment<byte> BYTEPayload = new ArraySegment<byte>(Encoding.UTF8.GetBytes(JSONPayload));
-            socket.SendAsync(BYTEPayload, WebSocketMessageType.Text, true, CancellationToken.None).Wait();
-
-            interactions = interactions + 1;
+            lock (sendLock)
+            {
+                localSocket.SendAsync(BYTEPayload, WebSocketMessageType.Text, true, cancellationToken).GetAwaiter().GetResult();
+                interactions = interactions + 1;
+            }
         }
     }
 }

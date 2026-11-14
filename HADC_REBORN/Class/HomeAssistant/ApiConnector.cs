@@ -28,6 +28,8 @@ namespace HADC_REBORN.Class.HomeAssistant
         private string secret = null;
 
         private HttpClient client = new HttpClient();
+        private bool clientInitialized = false;
+        private readonly object clientLock = new object();
 
         //Erro Handling
         private int failedAttempts = 0;
@@ -189,15 +191,19 @@ namespace HADC_REBORN.Class.HomeAssistant
         }
 
         private void inicialize(){
-            if (client == null)
+            lock (clientLock)
             {
-                return;
-            }
+                //Configure the shared client only once
+                if (clientInitialized)
+                {
+                    return;
+                }
 
-            client = new HttpClient();
-            client.BaseAddress = new Uri(url);
-            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-            client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));            
+                client.BaseAddress = new Uri(url);
+                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                clientInitialized = true;
+            }
         }
     }
 }

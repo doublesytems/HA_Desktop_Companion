@@ -21,32 +21,43 @@ namespace HADC_REBORN.Class.Actions
                 toast.AddText(title);
             }
 
-            if (!String.IsNullOrEmpty(imageUrl))
+            //A failed download must not prevent the notification itself
+            if (!String.IsNullOrEmpty(imageUrl) && imageUrl.StartsWith("http"))
             {
                 //TODO: REFACTORING
                 string fileName = string.Format("{0}{1}.png", System.IO.Path.GetTempPath(), Guid.NewGuid().ToString());
-                if (imageUrl.StartsWith("http"))
+                try
                 {
-                    WebClient wc = new WebClient();
-                    ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
-                    wc.DownloadFile(imageUrl, fileName);
-                }
+                    using (WebClient wc = new WebClient())
+                    {
+                        wc.DownloadFile(imageUrl, fileName);
+                    }
 
-                toast.AddInlineImage(new Uri("file:///" + fileName));
+                    toast.AddInlineImage(new Uri("file:///" + fileName));
+                }
+                catch (Exception ex)
+                {
+                    App.log.writeLine("Notification image download failed: " + ex.Message);
+                }
             }
 
-            if (!String.IsNullOrEmpty(audioUrl))
+            if (!String.IsNullOrEmpty(audioUrl) && audioUrl.StartsWith("http"))
             {
                 //TODO: REFACTORING
                 string fileName = string.Format("{0}{1}.wav", System.IO.Path.GetTempPath(), Guid.NewGuid().ToString());
-                if (audioUrl.StartsWith("http"))
+                try
                 {
-                    WebClient wc = new WebClient();
-                    ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
-                    wc.DownloadFile(audioUrl, fileName);
-                }
+                    using (WebClient wc = new WebClient())
+                    {
+                        wc.DownloadFile(audioUrl, fileName);
+                    }
 
-                playAudio(fileName, duration);
+                    playAudio(fileName, duration);
+                }
+                catch (Exception ex)
+                {
+                    App.log.writeLine("Notification audio download failed: " + ex.Message);
+                }
             }
 
             toast.Show();

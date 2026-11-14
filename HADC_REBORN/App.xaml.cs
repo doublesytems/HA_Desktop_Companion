@@ -193,6 +193,7 @@ namespace HADC_REBORN
                 return false;
             }
 
+            NetworkChange.NetworkAvailabilityChanged -= GetNetworkChange_NetworkAvailabilityChanged;
             NetworkChange.NetworkAvailabilityChanged += GetNetworkChange_NetworkAvailabilityChanged;
 
             try
@@ -212,23 +213,43 @@ namespace HADC_REBORN
 
         private void GetNetworkChange_NetworkAvailabilityChanged(object? sender, NetworkAvailabilityEventArgs e)
         {
-            if (e.IsAvailable)
+            //Runs on a background thread, an unhandled exception here would crash the app
+            try
             {
-                log.writeLine("Network Connected!");
-                wsWrapper.restart();
-                apiWrapper.restart();
+                if (e.IsAvailable)
+                {
+                    log.writeLine("Network Connected!");
+                    wsWrapper?.restart();
+                    apiWrapper?.restart();
+                }
+                else
+                {
+                    log.writeLine("Network Disconnected!");
+                    wsWrapper?.Disconnect();
+                    apiWrapper?.disconnect();
+                }
             }
-            else
+            catch (Exception ex)
             {
-                log.writeLine("Network Disconnected!");
-                wsWrapper.Disconnect();
-                apiWrapper.disconnect();
+                log.writeLine("Network change handling failed: " + ex.Message);
             }
         }
 
         public void Stop()
         {
             log.writeLine("stoping RestAPI");
+
+            NetworkChange.NetworkAvailabilityChanged -= GetNetworkChange_NetworkAvailabilityChanged;
+
+            try
+            {
+                wsWrapper?.Disconnect();
+                apiWrapper?.disconnect();
+            }
+            catch (Exception ex)
+            {
+                log.writeLine("Stop failed: " + ex.Message);
+            }
         }
 
         public bool isRunning()
@@ -250,7 +271,17 @@ namespace HADC_REBORN
 
         private void OnHomeAssistant_Click(object? sender, EventArgs e)
         {
-            Process.Start("explorer", "https://google.com");
+            string url = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None).AppSettings.Settings["url"].Value;
+
+            //Only open real web addresses
+            if (System.Uri.TryCreate(url, UriKind.Absolute, out System.Uri? haUri) && (haUri.Scheme == System.Uri.UriSchemeHttp || haUri.Scheme == System.Uri.UriSchemeHttps))
+            {
+                Process.Start(new ProcessStartInfo(haUri.ToString()) { UseShellExecute = true });
+            }
+            else
+            {
+                log.writeLine("Home Assistant URL is not set");
+            }
         }
 
         private void OnQuit_Click(object? sender, EventArgs e)

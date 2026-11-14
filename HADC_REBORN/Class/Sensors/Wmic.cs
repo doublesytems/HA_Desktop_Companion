@@ -75,8 +75,10 @@ namespace HADC_REBORN.Class.Sensors
                     {
                         if (queryObj.Properties.Count > 0 && queryObj?[wmic_selector]?.ToString() != null) //TODO: Eary Return
                         {
-                            App.log.writeLine("OUTPUT: " + queryObj?[wmic_selector]?.ToString());                          
-                            return queryObj?[wmic_selector]?.ToString();
+                            //Culture independent so decimal numbers always use a dot
+                            string output = Convert.ToString(queryObj[wmic_selector], System.Globalization.CultureInfo.InvariantCulture);
+                            App.log.writeLine("OUTPUT: " + output);
+                            return output;
                         }
                     }
 

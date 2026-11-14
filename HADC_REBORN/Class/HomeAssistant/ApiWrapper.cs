@@ -38,6 +38,18 @@ namespace HADC_REBORN.Class.HomeAssistant
             yamlLoader = yamlLoaderDependency;
             apiConnector = apiConnectorDependency;
             config = configDependency;
+
+            //Attach handlers only once, connect() can be called again on reconnect
+            apiWorker.DoWork += apiWorker_DoWork;
+
+            apiTimer.Interval = TimeSpan.FromSeconds(5);
+            apiTimer.Tick += updateSensors;
+        }
+
+        //Numbers are always handled with a dot as decimal separator, independent of the Windows language
+        private static bool tryParseNumber(string text, out double number)
+        {
+            return double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out number);
         }
 
         private static string applySenzorValueFilters(string senzorType, Dictionary<string, dynamic> sensorDefinition, string sensorData)
@@ -54,46 +66,50 @@ namespace HADC_REBORN.Class.HomeAssistant
 
             if (sensorDefinition.ContainsKey("value_map"))
             {
-                string[] valueMap = sensorDefinition["value_map"].Split("|");
-                sensorData = valueMap[(Int32.Parse((sensorData).ToString()))];
+                string[] valueMap = ((string)sensorDefinition["value_map"]).Split("|");
+                if (Int32.TryParse(sensorData, out int valueMapIndex) && valueMapIndex >= 0 && valueMapIndex < valueMap.Length)
+                {
+                    sensorData = valueMap[valueMapIndex];
+                }
                 //Logger.write(JsonConvert.SerializeObject(valueMap));
             }
 
             if (sensorDefinition.ContainsKey("filters"))
             {
-                bool isNumeric = double.TryParse(sensorData, out _);
                 Dictionary<string, string> filters = sensorDefinition["filters"];
 
-                if (isNumeric)
+                if (tryParseNumber(sensorData, out double filteredValue))
                 {
                     if (filters.ContainsKey("multiply"))
                     {
-                        sensorData = (double.Parse(sensorData) * float.Parse(filters["multiply"], CultureInfo.InvariantCulture.NumberFormat)).ToString();
+                        filteredValue = filteredValue * double.Parse(filters["multiply"], CultureInfo.InvariantCulture);
                     }
 
                     if (filters.ContainsKey("divide"))
                     {
-                        sensorData = (double.Parse(sensorData) / float.Parse(filters["divide"], CultureInfo.InvariantCulture.NumberFormat)).ToString();
+                        filteredValue = filteredValue / double.Parse(filters["divide"], CultureInfo.InvariantCulture);
                     }
 
                     if (filters.ContainsKey("deduct"))
                     {
-                        sensorData = (double.Parse(sensorData) - float.Parse(filters["deduct"], CultureInfo.InvariantCulture.NumberFormat)).ToString();
+                        filteredValue = filteredValue - double.Parse(filters["deduct"], CultureInfo.InvariantCulture);
                     }
 
                     if (filters.ContainsKey("add"))
                     {
-                        sensorData = (double.Parse(sensorData) + float.Parse(filters["add"], CultureInfo.InvariantCulture.NumberFormat)).ToString();
+                        filteredValue = filteredValue + double.Parse(filters["add"], CultureInfo.InvariantCulture);
                     }
+
+                    sensorData = filteredValue.ToString(CultureInfo.InvariantCulture);
                 }
 
             }
 
             if (sensorDefinition.ContainsKey("accuracy_decimals"))
             {
-                if (Regex.IsMatch(sensorData.ToString(), @"^[0-9]+.[0-9]+$") || Regex.IsMatch(sensorData.ToString(), @"^\d$"))
+                if (tryParseNumber(sensorData, out double roundedValue) && Int32.TryParse((string)sensorDefinition["accuracy_decimals"], out int decimals))
                 {
-                    sensorData = Math.Round(double.Parse(sensorData), Int32.Parse(sensorDefinition["accuracy_decimals"] ?? 0)).ToString();
+                    sensorData = Math.Round(roundedValue, decimals).ToString(CultureInfo.InvariantCulture);
                 }
             }
 
@@ -123,7 +139,7 @@ namespace HADC_REBORN.Class.HomeAssistant
                             if (sensorUpdatedAtList.ContainsKey(sensorUniqueId) && sensorDefinition.ContainsKey("update_interval"))
                             {
                                 TimeSpan difference = DateTime.Now.Subtract(sensorUpdatedAtList[sensorUniqueId]);
-                                if (difference.TotalSeconds < Double.Parse(sensorDefinition["update_interval"]))
+                                if (difference.TotalSeconds < Double.Parse((string)sensorDefinition["update_interval"], CultureInfo.InvariantCulture))
                                 {
                                     App.log.writeLine("Skiping: " + sensorUniqueId + " sensor Update time not Reached");
                                     continue;
@@ -136,7 +152,15 @@ namespace HADC_REBORN.Class.HomeAssistant
                             //   continue;
                             //}
 
-                            senzorsQuerys.Add(sensorUniqueId, getSenzorValue(integration, sensorDefinition));
+                            //One broken sensor must not stop the others
+                            try
+                            {
+                                senzorsQuerys.Add(sensorUniqueId, getSenzorValue(integration, sensorDefinition));
+                            }
+                            catch (Exception ex)
+                            {
+                                App.log.writeLine("Sensor " + sensorUniqueId + " failed: " + ex.Message);
+                            }
                         }
                     }
                 }
@@ -167,6 +191,12 @@ namespace HADC_REBORN.Class.HomeAssistant
                             }
 
                             string sensorData = senzorsQuerys[sensorUniqueId].Result;
+                            if (sensorData == null)
+                            {
+                                //Reading failed, already logged
+                                continue;
+                            }
+
                             sensorData = applySenzorValueFilters(senzorType, sensorDefinition, sensorData);
                             App.log.writeLine("Filtered Value " + sensorUniqueId + " - " + sensorData);
 
@@ -312,8 +342,8 @@ namespace HADC_REBORN.Class.HomeAssistant
                                 if (sensorDefinition.ContainsKey("entity_category"))
                                     senzor.entity_category = sensorDefinition["entity_category"];
 
-                                if (sensorDefinition.ContainsKey("disabled"))
-                                    senzor.device_class = sensorDefinition["disabled"];
+                                if (sensorDefinition.ContainsKey("disabled") && bool.TryParse((string)sensorDefinition["disabled"], out bool sensorDisabled))
+                                    senzor.disabled = sensorDisabled;
 
                                 if (senzorType == "binary_sensor")
                                     senzor.state = false;
@@ -336,16 +366,20 @@ namespace HADC_REBORN.Class.HomeAssistant
             apiConnector.setWebhookID(webhookId);
             apiConnector.setSecret(secret);
 
-            apiWorker.DoWork += apiWorker_DoWork;
-
-            apiTimer.Interval = TimeSpan.FromSeconds(5);
-            apiTimer.Tick += updateSensors;
             apiTimer.Start();
         }
 
         private void apiWorker_DoWork(object? sender, DoWorkEventArgs e)
         {
-            queryAndSendSenzorData();
+            //Wait until the round is finished so rounds never overlap
+            try
+            {
+                queryAndSendSenzorData().GetAwaiter().GetResult();
+            }
+            catch (Exception ex)
+            {
+                App.log.writeLine("[API] Sensor update failed: " + ex.Message);
+            }
         }
 
         private async void updateSensors(object? sender, EventArgs e)
@@ -366,15 +400,10 @@ namespace HADC_REBORN.Class.HomeAssistant
                 //Logger.write("AFTER CONVERSION (Bool)" + variableStr.ToString());
                 return bool.Parse(variableStr);
             }
-            else if (Regex.IsMatch(variableStr, @"^[0-9]+.[0-9]+$") && (variableStr.Contains(".") || variableStr.Contains(",")))
+            else if (Regex.IsMatch(variableStr, @"^-?[0-9]+([.][0-9]+)?([eE][-+]?[0-9]+)?$") && tryParseNumber(variableStr, out double number))
             {
                 //Logger.write("AFTER CONVERSION (double)" + variableStr.ToString());
-                return double.Parse(variableStr);
-            }
-            else if (Regex.IsMatch(variableStr, @"^\d+$"))
-            {
-                //Logger.write("AFTER CONVERSION (int)" + variableStr.ToString());
-                return double.Parse(variableStr);
+                return number;
             }
 
             //Logger.write("AFTER CONVERSION" + variableStr.ToString());
@@ -437,7 +466,17 @@ namespace HADC_REBORN.Class.HomeAssistant
             }
 
             return Task.Run<string>(() => {
-                return method.Invoke(null, parameters.ToArray()).ToString(); 
+                try
+                {
+                    //Culture independent so decimal numbers always use a dot
+                    return Convert.ToString(method.Invoke(null, parameters.ToArray()), CultureInfo.InvariantCulture) ?? "";
+                }
+                catch (Exception ex)
+                {
+                    //null marks a failed reading, so it is skipped instead of reported as 0
+                    App.log.writeLine("Sensor " + sensorUniqueId + " failed: " + (ex.InnerException ?? ex).Message);
+                    return null;
+                }
             });
         }
     }
