@@ -280,8 +280,8 @@ namespace HADC_REBORN.Class.HomeAssistant
                 pingLoopIndex++;
             } while (!Network.PingHost(apiConnector.getUrl().Host) && pingLoopIndex < 5);
 
-            string webhookId = config.AppSettings.Settings["webhook_id"].Value;
-            string secret = config.AppSettings.Settings["secret"].Value;
+            string webhookId = SecretStore.read(config, "webhook_id");
+            string secret = SecretStore.read(config, "secret");
 
             if (String.IsNullOrEmpty(webhookId))
             {
@@ -357,8 +357,8 @@ namespace HADC_REBORN.Class.HomeAssistant
                 webhookId = apiConnector.getWebhookID();
                 secret = apiConnector.getSecret();
 
-                config.AppSettings.Settings["webhook_id"].Value = webhookId;
-                config.AppSettings.Settings["secret"].Value = secret;
+                SecretStore.write(config, "webhook_id", webhookId);
+                SecretStore.write(config, "secret", secret);
 
                 config.Save(ConfigurationSaveMode.Modified);
             }

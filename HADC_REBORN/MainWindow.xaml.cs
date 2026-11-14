@@ -62,7 +62,7 @@ namespace HADC_REBORN
             {
                 App.log.writeLine("Previouse settings found");
                 url.Text = config.AppSettings.Settings["url"].Value;
-                token.Text = config.AppSettings.Settings["token"].Value;
+                token.Password = SecretStore.read(config, "token");
             }
 
             App.log.writeLine("Initial Loading Done");
@@ -86,7 +86,7 @@ namespace HADC_REBORN
             Configuration config = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
 
             config.AppSettings.Settings["url"].Value = url.Text.TrimEnd('/');
-            config.AppSettings.Settings["token"].Value = token.Text;
+            SecretStore.write(config, "token", token.Password);
 
             config.AppSettings.Settings["remote_url"].Value = "";
             config.AppSettings.Settings["cloud_url"].Value = "";

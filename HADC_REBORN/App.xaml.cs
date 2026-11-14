@@ -129,9 +129,8 @@ namespace HADC_REBORN
 
         private void Application_Startup(object sender, StartupEventArgs e)
         {
-            AutoUpdater.Start("https://github.com/GamerClassN7/HA_Desktop_Companion/releases/latest/download/meta.xml");
-            AutoUpdater.Synchronous = true;
             AutoUpdater.ShowRemindLaterButton = false;
+            AutoUpdater.Start("https://github.com/doublesytems/HA_Desktop_Companion/releases/latest/download/meta.xml");
         }
 
         public bool Start()
@@ -140,7 +139,14 @@ namespace HADC_REBORN
 
             Configuration config = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
             string url = config.AppSettings.Settings["url"].Value;
-            string token = config.AppSettings.Settings["token"].Value;
+            //Encrypt secrets that an older version saved as plain text
+            if (SecretStore.migrate(config, new string[] { "token", "webhook_id", "secret" }))
+            {
+                config.Save(ConfigurationSaveMode.Modified);
+                log.writeLine("Stored secrets encrypted");
+            }
+
+            string token = SecretStore.read(config, "token");
             log.setSecreets(new string[] { token, url.Replace("http://", "").Replace("https://", "")});
 
 
