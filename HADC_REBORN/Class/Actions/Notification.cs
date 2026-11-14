@@ -11,8 +11,41 @@ namespace HADC_REBORN.Class.Actions
 {
     class Notification
     {
+        private static string tempFolder = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "HADC_REBORN");
+
+        //Downloaded images and sounds are kept for one day, the notification can still be visible that long
+        private static void cleanTempFolder()
+        {
+            try
+            {
+                System.IO.Directory.CreateDirectory(tempFolder);
+
+                DateTime oldestToKeep = DateTime.Now.AddDays(-1);
+                foreach (string file in System.IO.Directory.GetFiles(tempFolder))
+                {
+                    try
+                    {
+                        if (System.IO.File.GetLastWriteTime(file) < oldestToKeep)
+                        {
+                            System.IO.File.Delete(file);
+                        }
+                    }
+                    catch (Exception)
+                    {
+                        //File is in use, try again next time
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                App.log.writeLine("Notification temp folder cleanup failed: " + ex.Message);
+            }
+        }
+
         public static void Spawn(string body = "", string title = "", string imageUrl = "", string audioUrl = "", int duration = 500)
         {
+            cleanTempFolder();
+
             ToastContentBuilder toast = new ToastContentBuilder();
             toast.AddText(body);
 
@@ -25,7 +58,7 @@ namespace HADC_REBORN.Class.Actions
             if (!String.IsNullOrEmpty(imageUrl) && imageUrl.StartsWith("http"))
             {
                 //TODO: REFACTORING
-                string fileName = string.Format("{0}{1}.png", System.IO.Path.GetTempPath(), Guid.NewGuid().ToString());
+                string fileName = System.IO.Path.Combine(tempFolder, Guid.NewGuid().ToString() + ".png");
                 try
                 {
                     using (WebClient wc = new WebClient())
@@ -44,7 +77,7 @@ namespace HADC_REBORN.Class.Actions
             if (!String.IsNullOrEmpty(audioUrl) && audioUrl.StartsWith("http"))
             {
                 //TODO: REFACTORING
-                string fileName = string.Format("{0}{1}.wav", System.IO.Path.GetTempPath(), Guid.NewGuid().ToString());
+                string fileName = System.IO.Path.Combine(tempFolder, Guid.NewGuid().ToString() + ".wav");
                 try
                 {
                     using (WebClient wc = new WebClient())
@@ -72,6 +105,17 @@ namespace HADC_REBORN.Class.Actions
                 player.Play();
                 Thread.Sleep(duration);
                 player.Stop();
+                player.Dispose();
+
+                //The sound is not needed anymore after playing
+                try
+                {
+                    System.IO.File.Delete(fileName);
+                }
+                catch (Exception)
+                {
+                    //Removed later by cleanTempFolder
+                }
             }).Start();
         }
     }

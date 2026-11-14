@@ -170,6 +170,27 @@ namespace HADC_REBORN.Class.Helpers
             }
         }
 
+        //Reads a top level option like "debug: true"
+        public bool getFlag(string name)
+        {
+            try
+            {
+                foreach (Dictionary<string, dynamic> rootOptions in configurationData[""][""][""])
+                {
+                    if (rootOptions.ContainsKey(name))
+                    {
+                        return String.Equals((string)rootOptions[name], "true", StringComparison.OrdinalIgnoreCase);
+                    }
+                }
+            }
+            catch (Exception)
+            {
+                //No top level options in the file
+            }
+
+            return false;
+        }
+
         public Dictionary<string, Dictionary<string, Dictionary<string, List<Dictionary<string, dynamic>>>>>  getConfigurationData()
         {
             return configurationData;

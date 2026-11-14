@@ -87,6 +87,7 @@ namespace HADC_REBORN
         protected override void OnStartup(StartupEventArgs e)
         {
             AppDomain.CurrentDomain.FirstChanceException += GlobalExceptionFunction;
+            AppDomain.CurrentDomain.UnhandledException += UnhandledExceptionFunction;
 
             ensureSettings();
 
@@ -136,6 +137,11 @@ namespace HADC_REBORN
                 log.writeLine("'configuration.yaml' found!");
             }
             yamlLoader = new YamlLoader(configFilePath);
+
+#if !DEBUG
+            Logger.verbose = yamlLoader.getFlag("debug");
+#endif
+            log.writeLine("detailed logging: " + (Logger.verbose ? "on" : "off (set 'debug: true' in configuration.yaml to enable)"));
         }
 
         public Dictionary<string, Dictionary<string, Dictionary<string, List<Dictionary<string, dynamic>>>>> getYAMLComfig()
@@ -148,9 +154,32 @@ namespace HADC_REBORN
             Theme.setTheme(Theme.isColorLight(sender.GetColorValue(UIColorType.Background)));
         }
 
+        [ThreadStatic]
+        private static bool loggingException;
+
+        //Every exception, also the handled ones, only interesting with detailed logging
         static void GlobalExceptionFunction(object source, FirstChanceExceptionEventArgs eventArgs)
         {
-            log.writeLine("[" + AppDomain.CurrentDomain.FriendlyName + "]" + eventArgs.Exception.ToString(), 3);
+            if (!Logger.verbose || loggingException)
+            {
+                return;
+            }
+
+            loggingException = true;
+            try
+            {
+                log.writeLine("[" + AppDomain.CurrentDomain.FriendlyName + "]" + eventArgs.Exception.ToString(), 3);
+            }
+            finally
+            {
+                loggingException = false;
+            }
+        }
+
+        //Exceptions nobody handled are always logged
+        static void UnhandledExceptionFunction(object source, UnhandledExceptionEventArgs eventArgs)
+        {
+            log.writeLine("[" + AppDomain.CurrentDomain.FriendlyName + "] UNHANDLED " + eventArgs.ExceptionObject?.ToString(), 3);
         }
 
         private void Application_Exit(object sender, ExitEventArgs e)

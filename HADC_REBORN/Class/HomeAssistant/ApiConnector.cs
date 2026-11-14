@@ -85,7 +85,7 @@ namespace HADC_REBORN.Class.HomeAssistant
             HttpResponseMessage response = client.GetAsync(endpoint).Result;
             if (response.IsSuccessStatusCode)
             {
-                App.log.writeLine("[API] RESPONSE CODE <" + (int)response.StatusCode + "> " + response.StatusCode.ToString());
+                App.log.writeDebug("[API] RESPONSE CODE <" + (int)response.StatusCode + "> " + response.StatusCode.ToString());
 
                 return response.Content;
                 // usergrid.ItemsSource = users;
@@ -110,7 +110,7 @@ namespace HADC_REBORN.Class.HomeAssistant
             var stringContent = new StringContent(content, Encoding.UTF8, "application/json");
 
             HttpResponseMessage response = client.PostAsync(endpoint, stringContent).Result;
-            App.log.writeLine("[API] RESPONSE CODE <" + (int)response.StatusCode + "> " + response.StatusCode.ToString());
+            App.log.writeDebug("[API] RESPONSE CODE <" + (int)response.StatusCode + "> " + response.StatusCode.ToString());
 
             if (response.IsSuccessStatusCode)
             {
@@ -164,7 +164,7 @@ namespace HADC_REBORN.Class.HomeAssistant
         {
             if (sensorsBuffer.Count < 1)
             {
-                App.log.writeLine("No data to send!");
+                App.log.writeDebug("No data to send!");
                 return "";
             }
 

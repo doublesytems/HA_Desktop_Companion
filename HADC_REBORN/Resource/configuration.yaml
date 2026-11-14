@@ -1,7 +1,7 @@
 ﻿
 websocket: true
 # ip_location: false
-debug: true
+debug: false
 # keys: false
 
 sensor:

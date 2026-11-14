@@ -11,7 +11,18 @@ namespace HADC_REBORN.Class.Helpers
 {
     public class Logger
     {
+        private const long maxLogFileBytes = 5 * 1024 * 1024;
+        private const int keepLogDays = 3;
+
+        //Detailed logging, enabled with "debug: true" in configuration.yaml
+#if DEBUG
+        public static bool verbose = true;
+#else
+        public static bool verbose = false;
+#endif
+
         private static bool isInistialized = false;
+        private readonly object writeLock = new object();
 #if DEBUG
         private string appDir = Directory.GetCurrentDirectory();
 #else
@@ -65,14 +76,38 @@ namespace HADC_REBORN.Class.Helpers
             return logFilePath;
         }
 
-        private void removeOldLogFiles(string rootLogFolderPath, int daysBack = -3)
+        //Removes every log file that is older than keepLogDays
+        private void removeOldLogFiles(string rootLogFolderPath)
         {
-            string logFileName = "log_"+((DateTime.Now).AddDays(daysBack).ToString("MM_dd_yyyy"))+".log";
-            string LogFileToDelete = Path.Combine(rootLogFolderPath, logFileName);
-            if (File.Exists(LogFileToDelete))
+            DateTime oldestToKeep = DateTime.Now.AddDays(-keepLogDays);
+            foreach (string logFile in Directory.GetFiles(rootLogFolderPath, "log_*"))
             {
-                File.Delete(LogFileToDelete);
+                try
+                {
+                    if (File.GetLastWriteTime(logFile) < oldestToKeep)
+                    {
+                        File.Delete(logFile);
+                    }
+                }
+                catch (Exception)
+                {
+                    //File is in use, try again next time
+                }
             }
+        }
+
+        //Keeps at most two files of maxLogFileBytes per day
+        private void rotateIfTooLarge()
+        {
+            FileInfo logFile = new FileInfo(logFilePath);
+            if (!logFile.Exists || logFile.Length < maxLogFileBytes)
+            {
+                return;
+            }
+
+            string previousLogFilePath = logFilePath + ".1";
+            File.Delete(previousLogFilePath);
+            File.Move(logFilePath, previousLogFilePath);
         }
 
         private string getLogMessage(string text, int type = 0)
@@ -99,19 +134,40 @@ namespace HADC_REBORN.Class.Helpers
 
         public void writeLine(string msg, int type = 0)
         {
-            int InitilizedBeforeNumberOfDays = (int)(DateTime.Now - lastInitializeDateTime).TotalDays;
-            if (!isInistialized || InitilizedBeforeNumberOfDays > 0)
-            {
-                logFilePath = initialize();
-            }
-
             Debug.WriteLine(msg);
 
-            FileStream fileStream = new FileStream(logFilePath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
-            StreamWriter streamWriter = new StreamWriter(fileStream);
-            streamWriter.Write(getLogMessage(msg, type));
-            streamWriter.Dispose();
-            fileStream.Dispose();
+            lock (writeLock)
+            {
+                try
+                {
+                    //Start a new file on a new day
+                    if (!isInistialized || DateTime.Now.Date != lastInitializeDateTime.Date)
+                    {
+                        logFilePath = initialize();
+                    }
+
+                    rotateIfTooLarge();
+
+                    using (FileStream fileStream = new FileStream(logFilePath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite))
+                    using (StreamWriter streamWriter = new StreamWriter(fileStream))
+                    {
+                        streamWriter.Write(getLogMessage(msg, type));
+                    }
+                }
+                catch (Exception)
+                {
+                    //Logging must never stop the app
+                }
+            }
+        }
+
+        //Only written when detailed logging is enabled
+        public void writeDebug(string msg, int type = 0)
+        {
+            if (verbose)
+            {
+                writeLine(msg, type);
+            }
         }
     }
 }

@@ -55,9 +55,9 @@ namespace HADC_REBORN.Class.Sensors
            //     return "";
             //}
 
-            App.log.writeLine("NAMESPACE " + wmic_namespace);
-            App.log.writeLine("SELECT " + wmic_selector + " FROM " + wmic_class + "[" + wmic_iterator_index + "]");
-            App.log.writeLine("ITERATOR " + wmic_iterator_index);
+            App.log.writeDebug("NAMESPACE " + wmic_namespace);
+            App.log.writeDebug("SELECT " + wmic_selector + " FROM " + wmic_class + "[" + wmic_iterator_index + "]");
+            App.log.writeDebug("ITERATOR " + wmic_iterator_index);
 
             ManagementScope scope = new ManagementScope(wmic_namespace);
             scope.Connect();
@@ -77,7 +77,7 @@ namespace HADC_REBORN.Class.Sensors
                         {
                             //Culture independent so decimal numbers always use a dot
                             string output = Convert.ToString(queryObj[wmic_selector], System.Globalization.CultureInfo.InvariantCulture);
-                            App.log.writeLine("OUTPUT: " + output);
+                            App.log.writeDebug("OUTPUT: " + output);
                             return output;
                         }
                     }

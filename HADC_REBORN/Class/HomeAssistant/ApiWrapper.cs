@@ -24,7 +24,7 @@ namespace HADC_REBORN.Class.HomeAssistant
     {
         static Dictionary<string, DateTime> sensorUpdatedAtList = new Dictionary<string, DateTime>();
         static Dictionary<string, dynamic> sensorLastValues = new Dictionary<string, dynamic>();
-        //static Dictionary<string, bool> sensorFailed= new Dictionary<string, bool>();
+        static HashSet<string> failingSensors = new HashSet<string>();
 
         private YamlLoader yamlLoader;
         private ApiConnector apiConnector;
@@ -44,6 +44,39 @@ namespace HADC_REBORN.Class.HomeAssistant
 
             apiTimer.Interval = TimeSpan.FromSeconds(5);
             apiTimer.Tick += updateSensors;
+        }
+
+        //A sensor that keeps failing is logged once, until it works again
+        private static void logSensorFailure(string sensorUniqueId, string message)
+        {
+            bool firstFailure;
+            lock (failingSensors)
+            {
+                firstFailure = failingSensors.Add(sensorUniqueId);
+            }
+
+            if (firstFailure)
+            {
+                App.log.writeLine("Sensor " + sensorUniqueId + " failed: " + message);
+            }
+            else
+            {
+                App.log.writeDebug("Sensor " + sensorUniqueId + " failed: " + message);
+            }
+        }
+
+        private static void clearSensorFailure(string sensorUniqueId)
+        {
+            bool wasFailing;
+            lock (failingSensors)
+            {
+                wasFailing = failingSensors.Remove(sensorUniqueId);
+            }
+
+            if (wasFailing)
+            {
+                App.log.writeLine("Sensor " + sensorUniqueId + " works again");
+            }
         }
 
         //Numbers are always handled with a dot as decimal separator, independent of the Windows language
@@ -141,7 +174,7 @@ namespace HADC_REBORN.Class.HomeAssistant
                                 TimeSpan difference = DateTime.Now.Subtract(sensorUpdatedAtList[sensorUniqueId]);
                                 if (difference.TotalSeconds < Double.Parse((string)sensorDefinition["update_interval"], CultureInfo.InvariantCulture))
                                 {
-                                    App.log.writeLine("Skiping: " + sensorUniqueId + " sensor Update time not Reached");
+                                    App.log.writeDebug("Skiping: " + sensorUniqueId + " sensor Update time not Reached");
                                     continue;
                                 }
                             }
@@ -159,7 +192,7 @@ namespace HADC_REBORN.Class.HomeAssistant
                             }
                             catch (Exception ex)
                             {
-                                App.log.writeLine("Sensor " + sensorUniqueId + " failed: " + ex.Message);
+                                logSensorFailure(sensorUniqueId, ex.Message);
                             }
                         }
                     }
@@ -171,9 +204,9 @@ namespace HADC_REBORN.Class.HomeAssistant
             await Task.WhenAll(senzorsQuerys.Values.ToArray());
             if (senzorsQuerys.Count < 1)
             {
-                App.log.writeLine("no senzor scheduled!");
+                App.log.writeDebug("no senzor scheduled!");
             }
-            App.log.writeLine("all task query Done!");
+            App.log.writeDebug("all task query Done!");
 
             foreach (var item in senzorTypes)
             {
@@ -198,11 +231,11 @@ namespace HADC_REBORN.Class.HomeAssistant
                             }
 
                             sensorData = applySenzorValueFilters(senzorType, sensorDefinition, sensorData);
-                            App.log.writeLine("Filtered Value " + sensorUniqueId + " - " + sensorData);
+                            App.log.writeDebug("Filtered Value " + sensorUniqueId + " - " + sensorData);
 
                             if (string.IsNullOrEmpty(sensorData))
                             {
-                                App.log.writeLine("No Data Returned to sensor " + sensorUniqueId);
+                                App.log.writeDebug("No Data Returned to sensor " + sensorUniqueId);
                                 continue;
                             }
 
@@ -469,12 +502,14 @@ namespace HADC_REBORN.Class.HomeAssistant
                 try
                 {
                     //Culture independent so decimal numbers always use a dot
-                    return Convert.ToString(method.Invoke(null, parameters.ToArray()), CultureInfo.InvariantCulture) ?? "";
+                    string value = Convert.ToString(method.Invoke(null, parameters.ToArray()), CultureInfo.InvariantCulture) ?? "";
+                    clearSensorFailure(sensorUniqueId);
+                    return value;
                 }
                 catch (Exception ex)
                 {
                     //null marks a failed reading, so it is skipped instead of reported as 0
-                    App.log.writeLine("Sensor " + sensorUniqueId + " failed: " + (ex.InnerException ?? ex).Message);
+                    logSensorFailure(sensorUniqueId, (ex.InnerException ?? ex).Message);
                     return null;
                 }
             });
