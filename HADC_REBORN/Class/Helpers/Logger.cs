@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -82,7 +82,15 @@ namespace HADC_REBORN.Class.Helpers
             {
                 foreach (string secret in secreetsStrings)
                 {
-                    parsedText = parsedText.Replace(secret, "***SECRET****");
+                    if (string.IsNullOrEmpty(secret)) continue;
+                    parsedText = System.Text.RegularExpressions.Regex.Replace(parsedText, System.Text.RegularExpressions.Regex.Escape(secret), "***SECRET****", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+                    // Also handle JSON escaped version (backslashes)
+                    string escapedSecret = secret.Replace("/", "\\/");
+                    if (escapedSecret != secret)
+                    {
+                        parsedText = System.Text.RegularExpressions.Regex.Replace(parsedText, System.Text.RegularExpressions.Regex.Escape(escapedSecret), "***SECRET****", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    }
                 }
             }
 

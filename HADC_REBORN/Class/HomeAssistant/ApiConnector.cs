@@ -1,4 +1,4 @@
-﻿using HADC_REBORN.Class.HomeAssistant.Objects;
+using HADC_REBORN.Class.HomeAssistant.Objects;
 using System;
 using System.Collections.Generic;
 using System.Configuration;
@@ -101,9 +101,10 @@ namespace HADC_REBORN.Class.HomeAssistant
             inicialize();
             string content = JsonConvert.SerializeObject(payload, Formatting.Indented, new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore }).ToString();
 
+#if DEBUG
             App.log.writeLine("[API] SEND:");
             App.log.writeLine(content);
-
+#endif
             var stringContent = new StringContent(content, Encoding.UTF8, "application/json");
 
             HttpResponseMessage response = client.PostAsync(endpoint, stringContent).Result;

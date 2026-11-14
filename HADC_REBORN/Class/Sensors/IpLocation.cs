@@ -1,4 +1,4 @@
-﻿using Newtonsoft.Json.Linq;
+using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -15,7 +15,7 @@ namespace HADC_REBORN.Class.Sensors
         {
             try
             {
-                string info = new WebClient().DownloadString("http://ipinfo.io/");
+                string info = new WebClient().DownloadString("https://ipinfo.io/");
                 return (string)JObject.Parse(info)["loc"];
             }
             catch (Exception)

@@ -1,4 +1,4 @@
-﻿using Microsoft.VisualBasic.Logging;
+using Microsoft.VisualBasic.Logging;
 using System;
 using System.Collections.Generic;
 using System.Configuration;
@@ -114,7 +114,15 @@ namespace HA.Class.Helpers
             if (secreetsStrings.Length > 0)
             {
                 foreach (string secret in secreetsStrings) {
-                    parsedText = parsedText.Replace(secret, "***SECRET****");
+                    if (string.IsNullOrEmpty(secret)) continue;
+                    parsedText = System.Text.RegularExpressions.Regex.Replace(parsedText, System.Text.RegularExpressions.Regex.Escape(secret), "***SECRET****", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    
+                    // Also handle JSON escaped version (backslashes)
+                    string escapedSecret = secret.Replace("/", "\\/");
+                    if (escapedSecret != secret)
+                    {
+                        parsedText = System.Text.RegularExpressions.Regex.Replace(parsedText, System.Text.RegularExpressions.Regex.Escape(escapedSecret), "***SECRET****", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    }
                 }
             }
 

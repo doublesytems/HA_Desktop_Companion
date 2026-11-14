@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Net;
 using System.Runtime.InteropServices;
 using Newtonsoft.Json.Linq;
@@ -11,7 +11,7 @@ namespace HA.Class.Sensors
         {
             try
             {
-                string info = new WebClient().DownloadString("http://ipinfo.io/");
+                string info = new WebClient().DownloadString("https://ipinfo.io/");
                 return (string)JObject.Parse(info)["loc"];
             }
             catch (Exception)

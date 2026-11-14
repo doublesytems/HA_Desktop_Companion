@@ -1,4 +1,4 @@
-﻿using HADC_REBORN.Class.HomeAssistant.Objects;
+using HADC_REBORN.Class.HomeAssistant.Objects;
 using Newtonsoft.Json.Linq;
 using Newtonsoft.Json;
 using System;
@@ -110,7 +110,9 @@ namespace HADC_REBORN.Class.HomeAssistant
                             {
                                 callbackRecieveEvent.Invoke(JObject.Parse(jsonPayload));
                             }
+#if DEBUG
                             App.log.writeLine("[WS] Recieved in LOOP: " + jsonPayload);
+#endif
                         }
                     }
                 }
@@ -168,8 +170,10 @@ namespace HADC_REBORN.Class.HomeAssistant
             WebSocketReceiveResult result = socket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None).Result;
             string JSONRecievedpayload = Encoding.UTF8.GetString(buffer, 0, result.Count);
 
+#if DEBUG
             App.log.writeLine("[WS] RECIEVED:");
             App.log.writeLine(JSONRecievedpayload);
+#endif
 
             return JObject.Parse(JSONRecievedpayload);
         }
@@ -178,8 +182,10 @@ namespace HADC_REBORN.Class.HomeAssistant
         {
             string JSONPayload = JsonConvert.SerializeObject(payloadObj, Formatting.Indented, new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore }).ToString();
 
+#if DEBUG
             App.log.writeLine("[WS] SEND:");
             App.log.writeLine(JSONPayload);
+#endif
 
             ArraySegment<byte> BYTEPayload = new ArraySegment<byte>(Encoding.UTF8.GetBytes(JSONPayload));
             socket.SendAsync(BYTEPayload, WebSocketMessageType.Text, true, CancellationToken.None).Wait();
