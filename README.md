@@ -1,7 +1,9 @@
 > Most of the time new version introduce new bugs so please if you are using working version keep using it until some stable release come out :)
 
 # HA Desktop Companion - Reborn
-[![Github All Releases](https://img.shields.io/github/downloads/GamerClassN7/HA_Desktop_Companion/total.svg)]()
+[![Github All Releases](https://img.shields.io/github/downloads/doublesytems/HA_Desktop_Companion/total.svg)](https://github.com/doublesytems/HA_Desktop_Companion/releases)
+
+> This is a fork of [GamerClassN7/HA_Desktop_Companion](https://github.com/GamerClassN7/HA_Desktop_Companion). All credit for the app goes to the original author and contributors. See [What is different in this fork](#what-is-different-in-this-fork).
 
 Why did I make this app ? 
 
@@ -19,15 +21,37 @@ Feel free to contribute any time :)
 
 [Discord](https://discord.com/invite/Kth2GyZMU7)
 
-### Looking for linux version ?
-[muniter/halinuxcompanion](https://github.com/muniter/halinuxcompanion)
+## What is different in this fork
+- The notification connection reconnects by itself, for example after Home Assistant restarts
+- The API token, webhook id and secret are stored encrypted (Windows DPAPI, readable only by your Windows account)
+- Updates are checked against the releases of this fork, and an update keeps your settings
+- A quiet log by default, limited in size and cleaned up after 3 days
+- Numbers are handled the same on every Windows language
+- Fixes for the restart pending sensor, send key notifications, the `disabled` sensor option and the "Home Assistant" tray menu item
+- Built on .NET 10
 
 ## Installation
-1) Download latest release [HERE](https://github.com/GamerClassN7/HA_Desktop_Companion/releases/latest)
-2) Extract the zip file to some folder on your system, 
-3) Run `HA.exe`
-4) Fill in "URL" & "API Token"
+1) Download `HA_Self_Contained.zip` from the latest release [HERE](https://github.com/doublesytems/HA_Desktop_Companion/releases/latest)
+2) Extract the zip file to a folder of its own where you can write files, for example `C:\Tools\HADC`. The app keeps its settings, `configuration.yaml` and logs in that folder
+3) Run `HADC_REBORN.exe`
+4) Fill in "URL" & "API Token" (a long-lived access token from your Home Assistant profile)
 5) Click "Save"
+
+The app keeps running in the system tray and starts with Windows. .NET does not have to be installed.
+
+### Updating
+The app checks for a new release when it starts and offers to install it. Your settings and `configuration.yaml` are kept.
+
+Coming from an older version? Put the new `HADC_REBORN.exe` in the same folder. A token that was saved as plain text is encrypted on the first start. Settings can not be copied to another computer or Windows account, fill in the token again there.
+
+### Logging
+Logs are written to the `logs` folder next to the app, the tray menu item "Log" opens the current one. Secrets are masked in the log.
+
+By default only important events are logged. For troubleshooting set this in `configuration.yaml` and restart the app:
+```yaml
+debug: true
+```
+A `configuration.yaml` created by an older version may still contain `debug: true`, set it to `false` for a quiet log.
 
 ## Sensors implemented currently:
 - battery_level
@@ -43,9 +67,9 @@ Feel free to contribute any time :)
 - wmic (You can integrate any wmix query syou want :))
 ```yaml
 - platform: wmic
-  wmic_path: Win32_Battery
+  wmic_class: Win32_Battery
   wmic_selector: BatteryStatus
-  wmic_namespace: \\root\CIMV2
+  wmic_namespace: root\CIMV2
   value_map: "Discharging|On AC|Fully Charged|Low|Critical|Charging|Charging and High|Charging and Low|Undefined|Partially Charged"
   name: Battery State
   unique_id: battery_state
@@ -162,7 +186,12 @@ action:
           default: []
 mode: single
 ```
+## Building and releasing
+See [BUILD.md](./BUILD.md) for the build command. Every push to `master` is built by GitHub Actions. Pushing a tag like `v1.2.3` creates a release with `HA_Self_Contained.zip` and the `meta.xml` the updater looks for; the app version is taken from the tag.
+
 ## Contributors
+Contributors of the original project:
+
 <a href="https://github.com/GamerClassN7/HA_Desktop_Companion/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=GamerClassN7/HA_Desktop_Companion" />
 </a>
