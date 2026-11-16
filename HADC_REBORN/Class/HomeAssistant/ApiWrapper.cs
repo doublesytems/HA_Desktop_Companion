@@ -34,6 +34,10 @@ namespace HADC_REBORN.Class.HomeAssistant
 
         private DispatcherTimer apiTimer = new DispatcherTimer();
 
+        private int registrationWanted = 0;
+        private int registrationDone = 0;
+        private DateTime registrationRetryAt = DateTime.MinValue;
+
         public ApiWrapper(YamlLoader yamlLoaderDependency, ApiConnector apiConnectorDependency, Configuration configDependency) {
             yamlLoader = yamlLoaderDependency;
             apiConnector = apiConnectorDependency;
@@ -149,8 +153,91 @@ namespace HADC_REBORN.Class.HomeAssistant
             return sensorData;
         }
 
+        //Asks the sensor round to register the sensors again, used after configuration.yaml changed
+        public void requestSensorRegistration()
+        {
+            registrationRetryAt = DateTime.MinValue;
+            Interlocked.Increment(ref registrationWanted);
+        }
+
+        //Runs on the sensor thread, so it never overlaps with a sensor round
+        private void registerChangedSensors()
+        {
+            int wanted = Volatile.Read(ref registrationWanted);
+            if (wanted == registrationDone || DateTime.Now < registrationRetryAt)
+            {
+                return;
+            }
+
+            try
+            {
+                registerSensors();
+
+                //Send every value again, also the ones that did not change
+                sensorUpdatedAtList.Clear();
+                sensorLastValues.Clear();
+
+                registrationDone = wanted;
+                App.log.writeLine("[API] Sensors registered after configuration change");
+            }
+            catch (Exception ex)
+            {
+                registrationRetryAt = DateTime.Now.AddMinutes(1);
+                App.log.writeLine("[API] Sensor registration failed, retrying in a minute: " + ex.Message);
+            }
+        }
+
+        //Registering a sensor Home Assistant already knows updates its name, icon and so on
+        private void registerSensors()
+        {
+            Dictionary<string, object> senzorTypes = getSensorsConfiguration();
+            foreach (var item in senzorTypes)
+            {
+                string senzorType = item.Key;
+                foreach (var platform in (Dictionary<string, Dictionary<string, List<Dictionary<string, dynamic>>>>)senzorTypes[senzorType])
+                {
+                    foreach (var integration in (Dictionary<string, List<Dictionary<string, dynamic>>>)platform.Value)
+                    {
+                        foreach (var sensorDefinition in (List<Dictionary<string, dynamic>>)integration.Value)
+                        {
+                            ApiSensor senzor = new ApiSensor();
+
+                            senzor.type = senzorType;
+                            senzor.name = sensorDefinition["name"];
+                            senzor.unique_id = sensorDefinition["unique_id"];
+
+                            if (sensorDefinition.ContainsKey("device_class"))
+                                senzor.device_class = sensorDefinition["device_class"];
+
+                            if (sensorDefinition.ContainsKey("icon"))
+                                senzor.icon = sensorDefinition["icon"];
+
+                            if (sensorDefinition.ContainsKey("unit_of_measurement"))
+                                senzor.unit_of_measurement = sensorDefinition["unit_of_measurement"];
+
+                            if (sensorDefinition.ContainsKey("state_class"))
+                                senzor.state_class = sensorDefinition["state_class"];
+
+                            if (sensorDefinition.ContainsKey("entity_category"))
+                                senzor.entity_category = sensorDefinition["entity_category"];
+
+                            if (sensorDefinition.ContainsKey("disabled") && bool.TryParse((string)sensorDefinition["disabled"], out bool sensorDisabled))
+                                senzor.disabled = sensorDisabled;
+
+                            if (senzorType == "binary_sensor")
+                                senzor.state = false;
+
+                            apiConnector.RegisterSensorData(senzor);
+                        }
+                    }
+                }
+            }
+        }
+
         public async Task queryAndSendSenzorData()
         {
+            registerChangedSensors();
+
             Dictionary<string, Task<string>> senzorsQuerys = new Dictionary<string, Task<string>>();
 
             Dictionary<string, object> senzorTypes = getSensorsConfiguration();
@@ -251,7 +338,8 @@ namespace HADC_REBORN.Class.HomeAssistant
                             ApiSensor senzor = new ApiSensor();
 
                             senzor.unique_id = sensorDefinition["unique_id"];
-                            senzor.icon = sensorDefinition["icon"];
+                            if (sensorDefinition.ContainsKey("icon"))
+                                senzor.icon = sensorDefinition["icon"];
                             senzor.state = convertToType(sensorData);
                             senzor.type = senzorType;
                             senzor.unique_id = sensorDefinition["unique_id"];
@@ -344,48 +432,7 @@ namespace HADC_REBORN.Class.HomeAssistant
                 };
                 apiConnector.RegisterDevice(devideForRegistration);
 
-                Dictionary<string, object> senzorTypes = getSensorsConfiguration();
-                foreach (var item in senzorTypes)
-                {
-                    string senzorType = item.Key;
-                    foreach (var platform in (Dictionary<string, Dictionary<string, List<Dictionary<string, dynamic>>>>)senzorTypes[senzorType])
-                    {
-                        foreach (var integration in (Dictionary<string, List<Dictionary<string, dynamic>>>)platform.Value)
-                        {
-                            foreach (var sensorDefinition in (List<Dictionary<string, dynamic>>)integration.Value)
-                            {
-                                ApiSensor senzor = new ApiSensor();
-
-                                senzor.type = senzorType;
-                                senzor.name = sensorDefinition["name"];
-                                senzor.unique_id = sensorDefinition["unique_id"];
-
-                                if (sensorDefinition.ContainsKey("device_class"))
-                                    senzor.device_class = sensorDefinition["device_class"];
-
-                                if (sensorDefinition.ContainsKey("icon"))
-                                    senzor.icon = sensorDefinition["icon"];
-
-                                if (sensorDefinition.ContainsKey("unit_of_measurement"))
-                                    senzor.unit_of_measurement = sensorDefinition["unit_of_measurement"];
-
-                                if (sensorDefinition.ContainsKey("state_class"))
-                                    senzor.state_class = sensorDefinition["state_class"];
-
-                                if (sensorDefinition.ContainsKey("entity_category"))
-                                    senzor.entity_category = sensorDefinition["entity_category"];
-
-                                if (sensorDefinition.ContainsKey("disabled") && bool.TryParse((string)sensorDefinition["disabled"], out bool sensorDisabled))
-                                    senzor.disabled = sensorDisabled;
-
-                                if (senzorType == "binary_sensor")
-                                    senzor.state = false;
-
-                                apiConnector.RegisterSensorData(senzor);
-                            }
-                        }
-                    }
-                }
+                registerSensors();
 
                 webhookId = apiConnector.getWebhookID();
                 secret = apiConnector.getSecret();
@@ -446,10 +493,16 @@ namespace HADC_REBORN.Class.HomeAssistant
         public Dictionary<string, object> getSensorsConfiguration()
         {
             Dictionary<string, object> senzorTypes = new Dictionary<string, object>();
-            senzorTypes.Add("sensor", yamlLoader.getConfigurationData()["sensor"]);
+            var configurationData = yamlLoader.getConfigurationData();
 
-            if (yamlLoader.getConfigurationData().ContainsKey("binary_sensor"))
-                senzorTypes.Add("binary_sensor", yamlLoader.getConfigurationData()["binary_sensor"]);
+            //A type without sensors is missing or empty, for example after the last one was removed
+            foreach (string senzorType in new string[] { "sensor", "binary_sensor" })
+            {
+                if (configurationData.TryGetValue(senzorType, out var sensors) && sensors != null)
+                {
+                    senzorTypes.Add(senzorType, sensors);
+                }
+            }
 
             return senzorTypes;
         }

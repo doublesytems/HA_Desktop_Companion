@@ -50,7 +50,8 @@ namespace HADC_REBORN.Class.Helpers
                     {
                         string[] splitedString = localLine.Split(':');
                         string parameter = splitedString[0].Trim();
-                        string value = splitedString[1].Trim();
+                        //Everything after the first colon, so a value like "Disk C: free" keeps its spaces
+                        string value = localLine.Substring(localLine.IndexOf(':') + 1).Trim();
 
                         if (parameter == "")
                         {
@@ -60,14 +61,6 @@ namespace HADC_REBORN.Class.Helpers
                         if (subArray != "" && !splitedString[0].Contains("     "))
                         {
                             subArray = "";
-                        }
-
-                        if (splitedString.Length > 2)
-                        {
-                            for (int i = 2; i < splitedString.Length; i++)
-                            {
-                                value += ":" + splitedString[i].Trim();
-                            }
                         }
 
                         if (value == "")
@@ -170,8 +163,26 @@ namespace HADC_REBORN.Class.Helpers
             }
         }
 
+        //Reads the file again, the data stays as it was when the file can not be read
+        public bool reload()
+        {
+            return load();
+        }
+
         //Reads a top level option like "debug: true"
-        public bool getFlag(string name)
+        public bool getFlag(string name, bool defaultValue = false)
+        {
+            string? value = getOption(name);
+            if (String.IsNullOrEmpty(value))
+            {
+                return defaultValue;
+            }
+
+            return String.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
+        }
+
+        //Reads a top level option as text, null when it is not in the file
+        public string? getOption(string name)
         {
             try
             {
@@ -179,7 +190,7 @@ namespace HADC_REBORN.Class.Helpers
                 {
                     if (rootOptions.ContainsKey(name))
                     {
-                        return String.Equals((string)rootOptions[name], "true", StringComparison.OrdinalIgnoreCase);
+                        return (string)rootOptions[name];
                     }
                 }
             }
@@ -188,7 +199,7 @@ namespace HADC_REBORN.Class.Helpers
                 //No top level options in the file
             }
 
-            return false;
+            return null;
         }
 
         public Dictionary<string, Dictionary<string, Dictionary<string, List<Dictionary<string, dynamic>>>>>  getConfigurationData()

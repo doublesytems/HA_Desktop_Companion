@@ -104,6 +104,7 @@ namespace HADC_REBORN
 
             icon.ContextMenuStrip = new ContextMenuStrip();
             icon.ContextMenuStrip.Items.Add("Home Assistant", null, OnHomeAssistant_Click);
+            icon.ContextMenuStrip.Items.Add("Settings", null, OnSettings_Click);
             icon.ContextMenuStrip.Items.Add("Log", null, OnLog_Click);
             icon.ContextMenuStrip.Items.Add("Send Test Notification", null, OnTestNotification_Click);
             icon.ContextMenuStrip.Items.Add("Quit", null, OnQuit_Click);
@@ -137,11 +138,90 @@ namespace HADC_REBORN
                 log.writeLine("'configuration.yaml' found!");
             }
             yamlLoader = new YamlLoader(configFilePath);
+            applyOptions();
+        }
 
+        public string getConfigFilePath()
+        {
+            return Path.Combine(appDir, "configuration.yaml");
+        }
+
+        //Top level options of configuration.yaml that are used outside the sensors
+        private void applyOptions()
+        {
 #if !DEBUG
             Logger.verbose = yamlLoader.getFlag("debug");
 #endif
             log.writeLine("detailed logging: " + (Logger.verbose ? "on" : "off (set 'debug: true' in configuration.yaml to enable)"));
+
+            Microphone.selectedDevice = yamlLoader.getOption("microphone") ?? "";
+        }
+
+        //Starts with Windows unless configuration.yaml says "autostart: false"
+        private void applyAutostart()
+        {
+            if (yamlLoader.getFlag("autostart", true))
+            {
+                Autostart.register();
+                log.writeLine("Autostart registered");
+            }
+            else
+            {
+                Autostart.unregister();
+                log.writeLine("Autostart turned off");
+            }
+        }
+
+        //Takes a changed configuration.yaml into use without restarting the app
+        public bool applyConfiguration()
+        {
+            if (yamlLoader == null)
+            {
+                loadYAMLComfig();
+                return yamlLoader.getConfigurationData() != null;
+            }
+
+            if (!yamlLoader.reload())
+            {
+                log.writeLine("'configuration.yaml' could not be read, keeping the previous configuration");
+                return false;
+            }
+
+            log.writeLine("'configuration.yaml' loaded again");
+            applyOptions();
+
+            try
+            {
+                applyAutostart();
+            }
+            catch (Exception ex)
+            {
+                log.writeLine(ex.Message);
+            }
+
+            //New and changed sensors have to be registered before their values are accepted
+            apiWrapper?.requestSensorRegistration();
+            return true;
+        }
+
+        //Stores the connection settings and connects with them
+        public bool saveConnection(string url, string token)
+        {
+            Configuration config = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
+
+            config.AppSettings.Settings["url"].Value = url.Trim().TrimEnd('/');
+            SecretStore.write(config, "token", token);
+
+            config.AppSettings.Settings["remote_url"].Value = "";
+            config.AppSettings.Settings["cloud_url"].Value = "";
+            config.AppSettings.Settings["webhook_id"].Value = "";
+            config.AppSettings.Settings["secret"].Value = "";
+
+            config.Save(ConfigurationSaveMode.Modified);
+            log.writeLine("Settings Saved");
+
+            Stop();
+            return Start();
         }
 
         public Dictionary<string, Dictionary<string, Dictionary<string, List<Dictionary<string, dynamic>>>>> getYAMLComfig()
@@ -264,8 +344,7 @@ namespace HADC_REBORN
 
             try
             {
-                Autostart.register();
-                log.writeLine("Autostart registered");
+                applyAutostart();
             }
             catch (Exception ex)
             {
@@ -328,6 +407,11 @@ namespace HADC_REBORN
             icon.Dispose();
 
             base.OnExit(e);
+        }
+
+        private void OnSettings_Click(object? sender, EventArgs e)
+        {
+            SettingsWindow.open();
         }
 
         private void OnLog_Click(object? sender, EventArgs e)

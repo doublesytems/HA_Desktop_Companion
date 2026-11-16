@@ -27,6 +27,7 @@ Feel free to contribute any time :)
 - Updates are checked against the releases of this fork, and an update keeps your settings
 - A quiet log by default, limited in size and cleaned up after 3 days
 - Numbers are handled the same on every Windows language
+- A settings window, so `configuration.yaml` does not have to be edited by hand, and sensors for one chosen microphone
 - Fixes for the restart pending sensor, send key notifications, the `disabled` sensor option and the "Home Assistant" tray menu item
 - Built on .NET 10
 
@@ -44,10 +45,40 @@ The app checks for a new release when it starts and offers to install it. Your s
 
 Coming from an older version? Put the new `HADC_REBORN.exe` in the same folder. A token that was saved as plain text is encrypted on the first start. Settings can not be copied to another computer or Windows account, fill in the token again there.
 
+### Settings
+The tray menu item "Settings" (also a button in the start window) opens a window where you can change everything without editing `configuration.yaml` by hand:
+- **Connection**: URL and API token
+- **General**: start with Windows, detailed logging, allow send key notifications
+- **Sensors**: add, change, duplicate and remove sensors
+- **Microphone**: pick a microphone and turn on sensors for it
+
+"Save" writes `configuration.yaml` and takes it into use right away, new and changed sensors are registered with Home Assistant without a restart. Good to know:
+- Saving rewrites the file, comments in it are not kept. The previous version is kept as `configuration.yaml.bak`
+- A removed sensor stays in Home Assistant until you delete it there
+- The characters `#` and `"` can not be used in values
+
+### Microphone sensors
+The `consent_store` sensor "Microphone in use" reports any app using any microphone. The `microphone` platform looks at one microphone, the one picked on the Microphone tab (stored as `microphone:` in `configuration.yaml`, without it the Windows default microphone is used):
+```yaml
+binary_sensor:
+  - platform: microphone
+    selector: in_use      # an app is recording from it, also "muted"
+    name: Selected Microphone in use
+    unique_id: selected_microphone_in_use
+    icon: "mdi:microphone"
+sensor:
+  - platform: microphone
+    selector: volume
+    name: Selected Microphone volume
+    unique_id: selected_microphone_volume
+    unit_of_measurement: "%"
+```
+Add `device:` with a microphone id to a sensor to let it look at another microphone than the picked one, the Sensors tab has a list for that.
+
 ### Logging
 Logs are written to the `logs` folder next to the app, the tray menu item "Log" opens the current one. Secrets are masked in the log.
 
-By default only important events are logged. For troubleshooting set this in `configuration.yaml` and restart the app:
+By default only important events are logged. For troubleshooting turn on "Detailed logging" in the settings, or set this in `configuration.yaml` and restart the app:
 ```yaml
 debug: true
 ```

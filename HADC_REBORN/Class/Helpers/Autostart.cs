@@ -32,5 +32,20 @@ namespace HADC_REBORN.Class.Helpers
                 throw new Exception("Autostart Registration Failed!");
             }
         }
+
+        public static void unregister()
+        {
+            try
+            {
+                using (RegistryKey key = Registry.CurrentUser.OpenSubKey("Software\\Microsoft\\Windows\\CurrentVersion\\Run", true))
+                {
+                    key.DeleteValue(System.AppDomain.CurrentDomain.FriendlyName, false);
+                }
+            }
+            catch (Exception)
+            {
+                throw new Exception("Autostart could not be turned off!");
+            }
+        }
     }
 }

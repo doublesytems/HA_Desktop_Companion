@@ -83,25 +83,18 @@ namespace HADC_REBORN
 
         private void save_MouseClick(object sender, RoutedEventArgs e)
         {
-            Configuration config = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
-
-            config.AppSettings.Settings["url"].Value = url.Text.TrimEnd('/');
-            SecretStore.write(config, "token", token.Password);
-
-            config.AppSettings.Settings["remote_url"].Value = "";
-            config.AppSettings.Settings["cloud_url"].Value = "";
-            config.AppSettings.Settings["webhook_id"].Value = "";
-            config.AppSettings.Settings["secret"].Value = "";
-
-            config.Save(ConfigurationSaveMode.Modified);
-            App.log.writeLine("Settings Saved");
+            bool started = app.saveConnection(url.Text, token.Password);
             Notification.Spawn("Settings Saved");
 
-            app.Stop();
-            if (app.Start())
+            if (started)
             {
                 Close();
             }
+        }
+
+        private void settings_Click(object sender, RoutedEventArgs e)
+        {
+            SettingsWindow.open();
         }
 
         private void close_Click(object sender, RoutedEventArgs e)
